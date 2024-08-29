@@ -14,6 +14,16 @@ func NewGlobalMap[T any]() *GlobalMap[T] {
 		data: make(map[string]T),
 	}
 }
+func (gm *GlobalMap[T]) GetVal(key string) (T, bool) {
+	gm.mu.RLock()
+	defer gm.mu.RUnlock()
+
+	if value, ok := gm.data[key]; ok {
+		return value, true
+	}
+	var defaultValue T
+	return defaultValue, false
+}
 
 func (gm *GlobalMap[T]) Get(key string) T {
 	gm.mu.RLock()
@@ -51,6 +61,9 @@ func Get(key string) string {
 	return GMap.Get(key)
 }
 
+func GetVal(key string) (string, bool) {
+	return GMap.GetVal(key)
+}
 func Set(key, value string) {
 	GMap.Set(key, value)
 }
