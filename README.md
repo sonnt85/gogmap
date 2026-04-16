@@ -1,5 +1,7 @@
 # gogmap
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/sonnt85/gogmap.svg)](https://pkg.go.dev/github.com/sonnt85/gogmap)
+
 A thread-safe generic map for Go with a built-in global string map instance.
 
 ## Installation
