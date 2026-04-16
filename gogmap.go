@@ -1,85 +1,122 @@
 package gogmap
 
 import (
+	"hash/fnv"
 	"sync"
 )
 
-type GlobalMap[T any] struct {
-	data map[string]T
+const defaultShards = 16
+
+type shard[T any] struct {
 	mu   sync.RWMutex
+	data map[string]T
+}
+
+// GlobalMap is a sharded concurrent map for reduced lock contention.
+type GlobalMap[T any] struct {
+	shards [defaultShards]shard[T]
 }
 
 func NewGlobalMap[T any]() *GlobalMap[T] {
-	return &GlobalMap[T]{
-		data: make(map[string]T),
+	gm := &GlobalMap[T]{}
+	for i := range gm.shards {
+		gm.shards[i].data = make(map[string]T)
 	}
+	return gm
 }
 
-// NewGlobalMapWithCapacity creates a GlobalMap pre-allocated with the given capacity.
+// NewGlobalMapWithCapacity creates a GlobalMap pre-allocated with the given capacity spread across shards.
 func NewGlobalMapWithCapacity[T any](capacity int) *GlobalMap[T] {
-	return &GlobalMap[T]{data: make(map[string]T, capacity)}
+	perShard := capacity/defaultShards + 1
+	gm := &GlobalMap[T]{}
+	for i := range gm.shards {
+		gm.shards[i].data = make(map[string]T, perShard)
+	}
+	return gm
+}
+
+//go:inline
+func (gm *GlobalMap[T]) getShard(key string) *shard[T] {
+	h := fnv.New32a()
+	h.Write([]byte(key))
+	return &gm.shards[h.Sum32()%defaultShards]
 }
 
 func (gm *GlobalMap[T]) GetVal(key string) (T, bool) {
-	gm.mu.RLock()
-	value, ok := gm.data[key]
-	gm.mu.RUnlock()
+	s := gm.getShard(key)
+	s.mu.RLock()
+	value, ok := s.data[key]
+	s.mu.RUnlock()
 	if ok {
 		return value, true
 	}
-	var defaultValue T
-	return defaultValue, false
+	var zero T
+	return zero, false
 }
 
 func (gm *GlobalMap[T]) Get(key string) T {
-	gm.mu.RLock()
-	value, ok := gm.data[key]
-	gm.mu.RUnlock()
+	s := gm.getShard(key)
+	s.mu.RLock()
+	value, ok := s.data[key]
+	s.mu.RUnlock()
 	if ok {
 		return value
 	}
-	var defaultValue T
-	return defaultValue
+	var zero T
+	return zero
 }
 
 func (gm *GlobalMap[T]) Set(key string, value T) {
-	gm.mu.Lock()
-	defer gm.mu.Unlock()
-	gm.data[key] = value
+	s := gm.getShard(key)
+	s.mu.Lock()
+	s.data[key] = value
+	s.mu.Unlock()
 }
 
 func (gm *GlobalMap[T]) Del(key string) {
-	gm.mu.Lock()
-	defer gm.mu.Unlock()
-	delete(gm.data, key)
+	s := gm.getShard(key)
+	s.mu.Lock()
+	delete(s.data, key)
+	s.mu.Unlock()
 }
 
 func (gm *GlobalMap[T]) Map() map[string]T {
-	gm.mu.RLock()
-	defer gm.mu.RUnlock()
-	cp := make(map[string]T, len(gm.data))
-	for k, v := range gm.data {
-		cp[k] = v
+	cp := make(map[string]T)
+	for i := range gm.shards {
+		s := &gm.shards[i]
+		s.mu.RLock()
+		for k, v := range s.data {
+			cp[k] = v
+		}
+		s.mu.RUnlock()
 	}
 	return cp
 }
 
 // Range calls f for each key-value pair. If f returns false, iteration stops.
 func (gm *GlobalMap[T]) Range(f func(key string, value T) bool) {
-	gm.mu.RLock()
-	defer gm.mu.RUnlock()
-	for k, v := range gm.data {
-		if !f(k, v) {
-			return
+	for i := range gm.shards {
+		s := &gm.shards[i]
+		s.mu.RLock()
+		for k, v := range s.data {
+			if !f(k, v) {
+				s.mu.RUnlock()
+				return
+			}
 		}
+		s.mu.RUnlock()
 	}
 }
 
 // Len returns the number of entries in the map.
 func (gm *GlobalMap[T]) Len() int {
-	gm.mu.RLock()
-	n := len(gm.data)
-	gm.mu.RUnlock()
+	n := 0
+	for i := range gm.shards {
+		s := &gm.shards[i]
+		s.mu.RLock()
+		n += len(s.data)
+		s.mu.RUnlock()
+	}
 	return n
 }
 
