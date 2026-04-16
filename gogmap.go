@@ -50,9 +50,13 @@ func (gm *GlobalMap[T]) Del(key string) {
 }
 
 func (gm *GlobalMap[T]) Map() map[string]T {
-	gm.mu.Lock()
-	defer gm.mu.Unlock()
-	return gm.data
+	gm.mu.RLock()
+	defer gm.mu.RUnlock()
+	cp := make(map[string]T, len(gm.data))
+	for k, v := range gm.data {
+		cp[k] = v
+	}
+	return cp
 }
 
 var GMap = NewGlobalMap[string]()
@@ -72,5 +76,5 @@ func Del(key string) {
 	GMap.Del(key)
 }
 func Map() map[string]string {
-	return GMap.data
+	return GMap.Map()
 }
