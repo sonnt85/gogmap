@@ -66,6 +66,10 @@ func main() {
 - `Del(key string)`
 - `Map() map[string]string`
 
+## Author
+
+**sonnt85** — [thanhson.rf@gmail.com](mailto:thanhson.rf@gmail.com)
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
