@@ -1,15 +1,26 @@
 package gogmap
 
 import (
-	"hash/fnv"
 	"sync"
 )
 
-const defaultShards = 16
+const (
+	defaultShards = 32
+	shardMask     = defaultShards - 1
 
+	// fnv32a constants — inlined hash to avoid hash.Hash32 interface
+	// allocation and []byte(key) conversion on every shard lookup.
+	fnvOffset32 = 2166136261
+	fnvPrime32  = 16777619
+)
+
+// shard holds one bucket of the map, padded to a 64-byte cache line so
+// concurrent writes to neighboring shards do not bounce cache lines between
+// cores (false sharing).
 type shard[T any] struct {
-	mu   sync.RWMutex
-	data map[string]T
+	mu   sync.RWMutex // 24 bytes
+	data map[string]T //  8 bytes
+	_    [32]byte     // pad to 64 bytes
 }
 
 // GlobalMap is a sharded concurrent map for reduced lock contention.
@@ -35,11 +46,13 @@ func NewGlobalMapWithCapacity[T any](capacity int) *GlobalMap[T] {
 	return gm
 }
 
-//go:inline
 func (gm *GlobalMap[T]) getShard(key string) *shard[T] {
-	h := fnv.New32a()
-	h.Write([]byte(key))
-	return &gm.shards[h.Sum32()%defaultShards]
+	h := uint32(fnvOffset32)
+	for i := 0; i < len(key); i++ {
+		h ^= uint32(key[i])
+		h *= fnvPrime32
+	}
+	return &gm.shards[h&shardMask]
 }
 
 func (gm *GlobalMap[T]) GetVal(key string) (T, bool) {

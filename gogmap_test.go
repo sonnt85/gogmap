@@ -77,46 +77,63 @@ func TestConcurrent(t *testing.T) {
 	wg.Wait()
 }
 
+// benchKeys returns a pre-computed slice of n keys to avoid
+// measuring fmt.Sprintf cost inside benchmark hot loops.
+func benchKeys(n int) []string {
+	keys := make([]string, n)
+	for i := 0; i < n; i++ {
+		keys[i] = fmt.Sprintf("key%d", i)
+	}
+	return keys
+}
+
 func BenchmarkGetParallel(b *testing.B) {
+	const n = 1000
+	keys := benchKeys(n)
 	m := NewGlobalMap[string]()
-	for i := 0; i < 1000; i++ {
-		m.Set(fmt.Sprintf("key%d", i), "value")
+	for _, k := range keys {
+		m.Set(k, "value")
 	}
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		i := 0
 		for pb.Next() {
-			m.Get(fmt.Sprintf("key%d", i%1000))
+			m.Get(keys[i%n])
 			i++
 		}
 	})
 }
 
 func BenchmarkSetParallel(b *testing.B) {
+	const n = 1000
+	keys := benchKeys(n)
 	m := NewGlobalMap[string]()
+	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		i := 0
 		for pb.Next() {
-			m.Set(fmt.Sprintf("key%d", i%1000), "value")
+			m.Set(keys[i%n], "value")
 			i++
 		}
 	})
 }
 
 func BenchmarkMixedParallel(b *testing.B) {
+	const n = 1000
+	keys := benchKeys(n)
 	m := NewGlobalMap[string]()
-	for i := 0; i < 1000; i++ {
-		m.Set(fmt.Sprintf("key%d", i), "value")
+	for _, k := range keys {
+		m.Set(k, "value")
 	}
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		i := 0
 		for pb.Next() {
-			key := fmt.Sprintf("key%d", i%1000)
+			k := keys[i%n]
 			if i%10 == 0 {
-				m.Set(key, "new")
+				m.Set(k, "new")
 			} else {
-				m.Get(key)
+				m.Get(k)
 			}
 			i++
 		}
